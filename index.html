@@ -678,7 +678,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
   --shadow:0 1px 2px rgba(20,36,44,.08),0 8px 24px rgba(20,36,44,.12);
   --c-Haabersti:#3f6fb0; --c-Põhja-Tallinn:#7a5ba6; --c-Kesklinn:#c0492f; --c-Kristiine:#cf8a26;
   --c-Mustamäe:#8a7f3a; --c-Nõmme:#3f7d3a; --c-Lasnamäe:#9a4f7c; --c-Pirita:#2f8f86;
-  --fill-op:.16;
+  --fill-op:.30;
   --sans:"Archivo",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
   --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
 }
@@ -692,7 +692,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
     --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.45);
     --c-Haabersti:#6f9ad6; --c-Põhja-Tallinn:#a58bd0; --c-Kesklinn:#e0765d; --c-Kristiine:#e2a74f;
     --c-Mustamäe:#b8ad62; --c-Nõmme:#72b06a; --c-Lasnamäe:#c983ae; --c-Pirita:#5cbfb4;
-    --fill-op:.22;
+    --fill-op:.36;
   }
 }
 :root[data-theme="dark"]{
@@ -704,7 +704,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
   --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.45);
   --c-Haabersti:#6f9ad6; --c-Põhja-Tallinn:#a58bd0; --c-Kesklinn:#e0765d; --c-Kristiine:#e2a74f;
   --c-Mustamäe:#b8ad62; --c-Nõmme:#72b06a; --c-Lasnamäe:#c983ae; --c-Pirita:#5cbfb4;
-  --fill-op:.22;
+  --fill-op:.36;
 }
 [hidden]{display:none!important}
 html,body{height:100%}
@@ -775,7 +775,7 @@ details[open] summary::after{content:"–"}
 .locate-ctl a.following{background:var(--accent)!important;color:var(--panel)!important}
 .locate-ctl a.waiting svg{animation:pulse 1s ease-in-out infinite}
 @keyframes pulse{50%{opacity:.35}}
-.sheet-btn{display:none;padding:5px 10px;font-size:12px}
+.sheet-btn{display:none;padding:5px 10px;font-size:12px;white-space:nowrap;flex:none}
 .head-sub{display:none;margin:0;font-size:12.5px;color:var(--ink-2);font-variant-numeric:tabular-nums}
 
 @media (max-width:640px){
@@ -940,7 +940,7 @@ const DATA = {"lo":[{"n":"Haabersti","km2":22.26,"p":[[[[24.574627,59.461817],[2
   const ll = poly => poly.map(ring=>ring.map(([x,y])=>[y,x]));
   const asLayers = AS.map(a=>{
     const lyr = L.polygon(a.p.map(ll),{renderer,interactive:false,stroke:false,
-      fillColor: col(a.lo), fillOpacity: .13});
+      fillColor: col(a.lo), fillOpacity: +tok('fill-op')});
     return lyr.addTo(map);
   });
   function mix(c1,c2,t){ // t = share of c2
@@ -949,8 +949,12 @@ const DATA = {"lo":[{"n":"Haabersti","km2":22.26,"p":[[[[24.574627,59.461817],[2
   }
 
   // redraw asum outlines above transit
-  DATA.as.forEach(a=>L.polygon(a.p.map(ll),{renderer,interactive:false,color:tok('asum-line'),weight:1,opacity:.5,fill:false}).addTo(map));
-  DATA.lo.forEach(o=>L.polygon(o.p.map(ll),{renderer,interactive:false,color:tok('lo-line'),weight:3,opacity:.85,fill:false}).addTo(map));
+  // asum borders: a light halo under a firm line, so they read on top of busy streets
+  const line=(p,o)=>L.polygon(p.map(ll),{renderer,interactive:false,fill:false,lineJoin:'round',...o}).addTo(map);
+  DATA.as.forEach(a=>line(a.p,{color:tok('land'),weight:4,opacity:.7}));
+  DATA.as.forEach(a=>line(a.p,{color:tok('asum-line'),weight:1.8,opacity:.9}));
+  DATA.lo.forEach(o=>line(o.p,{color:tok('land'),weight:7,opacity:.75}));
+  DATA.lo.forEach(o=>line(o.p,{color:tok('lo-line'),weight:3.5,opacity:1}));
 
   const hl = L.polygon([], {renderer,interactive:false,color:tok('accent'),weight:3.5,opacity:1,fill:false}).addTo(map);
 
