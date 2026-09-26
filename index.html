@@ -769,15 +769,23 @@ details[open] summary::after{content:"–"}
 .as-list button.cur{background:var(--panel-2);border-color:var(--ink-3);font-weight:700}
 .grip{display:none}
 .chip-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.eyebrow-row{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:30px}
+.locate-ctl a{width:44px!important;height:44px!important;line-height:44px!important;display:flex!important;align-items:center;justify-content:center;color:var(--ink)!important;background:var(--panel)!important}
+.locate-ctl a.tracking{color:var(--accent)!important}
+.locate-ctl a.following{background:var(--accent)!important;color:var(--panel)!important}
+.locate-ctl a.waiting svg{animation:pulse 1s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.35}}
 .sheet-btn{display:none;padding:5px 10px;font-size:12px}
 .head-sub{display:none;margin:0;font-size:12.5px;color:var(--ink-2);font-variant-numeric:tabular-nums}
 
 @media (max-width:640px){
   #panel{left:0;right:0;top:auto;bottom:0;width:auto;max-height:50%;border-radius:16px 16px 0 0;border-bottom:0;
     padding-bottom:env(safe-area-inset-bottom,0px)}
-  .grip{display:block;width:40px;height:4px;border-radius:2px;background:var(--line);margin:8px auto 0}
+  .grip{display:block;width:40px;height:4px;border-radius:2px;background:var(--line);margin:4px auto 0;box-sizing:content-box}
   .p-head{padding:8px 16px 12px}
   .sheet-btn,.head-sub{display:block}
+  .grip{cursor:pointer;padding:8px 0;margin:0 auto;width:60px;background-clip:content-box}
+  .p-head{cursor:pointer}
   #panel.compact .p-body{display:none}
   #panel.compact .p-head{border-bottom:0}
   .p-body{padding:12px 16px 14px}
@@ -794,11 +802,11 @@ details[open] summary::after{content:"–"}
   <aside id="panel" aria-live="polite">
     <div class="grip" aria-hidden="true"></div>
     <div class="p-head">
-      <div class="eyebrow"><span class="src-dot" id="srcDot"></span><span id="srcLabel">Example point · Vabaduse väljak</span></div>
+      <div class="eyebrow-row"><div class="eyebrow"><span class="src-dot" id="srcDot"></span><span id="srcLabel">Example</span></div>
+        <button type="button" id="btnSheet" class="sheet-btn" aria-expanded="false" aria-controls="pBody">Details ▴</button></div>
       <h1 id="asumName">—</h1>
       <div class="chip-row">
         <span class="lo-chip"><i id="loSwatch"></i><span id="loName">—</span></span>
-        <button type="button" id="btnSheet" class="sheet-btn" aria-expanded="false" aria-controls="pBody">Details</button>
       </div>
       <p class="head-sub" id="headSub"></p>
     </div>
@@ -810,12 +818,6 @@ details[open] summary::after{content:"–"}
         <dt>Asum</dt><dd id="fAsStats">—</dd>
         <dt>Coordinates</dt><dd id="fCoords" class="mono">—</dd>
       </dl>
-      <div class="row" id="gpsRow">
-        <button class="primary" id="btnLocate" type="button">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
-          <span id="btnLocateLabel">Find me</span></button>
-        <button id="btnFollow" type="button" aria-pressed="true" hidden>Follow</button>
-      </div>
       <p class="note" id="gpsNote"></p>
       <div>
         <label class="small" for="coordIn">Check coordinates (paste from any maps app)</label>
@@ -1035,48 +1037,70 @@ const DATA = {"lo":[{"n":"Haabersti","km2":22.26,"p":[[[[24.574627,59.461817],[2
   $('coordIn').addEventListener('input',()=>$('coordIn').setCustomValidity(''));
 
   // ---- GPS ----
-  let watchId=null, following=true, gotFix=false;
-  const btnF=$('btnFollow');
-  function stopFollow(){ if(watchId!==null){ following=false; btnF.setAttribute('aria-pressed','false'); } }
-  btnF.onclick=()=>{ following=!following; btnF.setAttribute('aria-pressed',String(following)); if(following && watchId!==null) centreOn(pin.getLatLng(),null,true); };
-  map.on('dragstart',()=>{ if(watchId!==null){following=false;btnF.setAttribute('aria-pressed','false');} });
+  let watchId=null, following=true, gotFix=false, lastFix=null;
+  // locate button on the map, under the zoom buttons: tap = find me; tap again = re-centre; tap while centred = stop
+  const LocateCtl = L.Control.extend({ options:{position:'topright'}, onAdd(){
+    const d=L.DomUtil.create('div','leaflet-bar locate-ctl');
+    d.innerHTML='<a href="#" role="button" id="btnLocate" title="Find me" aria-label="Find me"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="8.5" stroke-width="1.6"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3"/></svg></a>';
+    L.DomEvent.disableClickPropagation(d); return d; }});
+  if (STANDALONE) new LocateCtl().addTo(map);
+  const btnL=()=>$('btnLocate');
+  function paintBtn(){ const b=btnL(); if(!b) return;
+    b.classList.toggle('waiting', watchId!==null && !gotFix);
+    b.classList.toggle('tracking', watchId!==null && gotFix);
+    b.classList.toggle('following', watchId!==null && gotFix && following); }
+  function stopFollow(){ if(watchId!==null){ following=false; paintBtn(); } }
+  map.on('dragstart',stopFollow);
 
   function gpsMsg(t){ $('gpsNote').textContent=t; }
   if (!STANDALONE){
     gpsMsg('This page can’t read your phone’s location. Tap the map where you are, or paste coordinates from your maps app.');
   } else {
-    gpsMsg('Tap “Find me” to track your position live. Your location stays on this device.');
+    gpsMsg('Tap ◎ (top right) to find yourself and follow along live. Your location stays on this device.');
   }
 
-  $('btnLocate').onclick=()=>{
-    if (watchId!==null){ navigator.geolocation.clearWatch(watchId); watchId=null; $('btnLocateLabel').textContent='Find me'; btnF.hidden=true; acc.remove(); gpsMsg('Tracking stopped.'); return; }
+  function stopTracking(msg){ if(watchId!==null) navigator.geolocation.clearWatch(watchId); watchId=null; gotFix=false; acc.remove(); paintBtn(); if(msg) gpsMsg(msg); }
+  function startTracking(){
     if (!('geolocation' in navigator)){ gpsMsg('This browser has no location support. Tap the map or paste coordinates instead.'); return; }
-    gpsMsg('Waiting for a GPS fix…'); gotFix=false; following=true; btnF.setAttribute('aria-pressed','true');
+    gpsMsg('Waiting for a GPS fix…'); gotFix=false; following=true; $('srcLabel').textContent='Finding you…';
     watchId=navigator.geolocation.watchPosition(p=>{
       const {latitude:lat,longitude:lng,accuracy}=p.coords;
-      if (!gotFix){ gotFix=true; centreOn([lat,lng],16); btnF.hidden=false; gpsMsg('Tracking live. Drag the map to look around; press Follow to re-centre.'); }
+      lastFix=[lat,lng];
+      if (!gotFix){ gotFix=true; centreOn([lat,lng],16); gpsMsg('Tracking live. Drag the map to look around; tap ◎ to re-centre.'); }
       else if (following) centreOn([lat,lng],null,true);
-      show(lat,lng,'gps',accuracy);
+      show(lat,lng,'gps',accuracy); paintBtn();
     }, err=>{
       const m = err.code===1
         ? (STANDALONE ? 'Location permission was refused. Allow location for this page in your browser settings, then try again.'
                       : 'Location is blocked inside this viewer. Tap the map or paste coordinates instead.')
         : err.code===3 ? 'No GPS fix yet. Step outside or wait a moment.' : 'Location unavailable right now.';
       gpsMsg(m);
-      if (err.code===1){ navigator.geolocation.clearWatch(watchId); watchId=null; $('btnLocateLabel').textContent='Find me'; }
+      if (err.code===1){ stopTracking(); $('srcLabel').textContent='Location refused'; setCompact(false); }
     },{enableHighAccuracy:true,maximumAge:3000,timeout:20000});
-    $('btnLocateLabel').textContent='Stop';
-  };
-  if (!STANDALONE) $('gpsRow').hidden=true;
+    paintBtn();
+  }
+  if (STANDALONE){
+    btnL().addEventListener('click',e=>{ e.preventDefault();
+      if (watchId===null) return startTracking();
+      if (!gotFix) return;
+      if (!following){ following=true; paintBtn(); centreOn(lastFix,Math.max(map.getZoom(),15),true); return; }
+      stopTracking('Tracking stopped. Tap ◎ to start again.'); $('srcLabel').textContent='Last GPS position';
+    });
+    // start straight away when location was already allowed on an earlier visit
+    try { navigator.permissions?.query({name:'geolocation'}).then(p=>{ if(p.state==='granted') startTracking(); }).catch(()=>{}); } catch(e){}
+  }
 
   // phone: collapsible sheet, compact by default so the map stays visible
   const panel=$('panel');
-  function setCompact(on){ panel.classList.toggle('compact',on); $('btnSheet').setAttribute('aria-expanded',String(!on)); $('btnSheet').textContent=on?'Details':'Less'; }
-  $('btnSheet').onclick=()=>setCompact(!panel.classList.contains('compact'));
+  function setCompact(on){ panel.classList.toggle('compact',on); $('btnSheet').setAttribute('aria-expanded',String(!on)); $('btnSheet').textContent=on?'Details ▴':'Less ▾'; }
+  const toggleSheet=()=>setCompact(!panel.classList.contains('compact'));
+  $('btnSheet').onclick=e=>{ e.stopPropagation(); toggleSheet(); };
+  document.querySelector('.grip').onclick=toggleSheet;
+  document.querySelector('.p-head').addEventListener('click',e=>{ if(isPhone() && !e.target.closest('button')) toggleSheet(); });
   if (isPhone()) setCompact(true);
 
   // example state: Vabaduse väljak
-  show(59.4339,24.7449,'Example · tap the map where you are');
+  show(59.4339,24.7449, STANDALONE ? 'Example · tap ◎ to find yourself' : 'Example · tap the map where you are');
   centreOn([59.4339,24.7449], isPhone()?14:14);
 })();
 </script>
