@@ -967,8 +967,12 @@ const DATA = {"lo":[{"n":"Haabersti","km2":22.26,"p":[[[[24.574627,59.461817],[2
   map.on('zoomend',zoomCls); zoomCls();
 
   // ---- markers ----
-  const pin = L.circleMarker([0,0],{radius:7,color:'#fff',weight:2.5,fillColor:tok('accent'),fillOpacity:1});
+  // pin = a point you tapped or picked (ring); me = your live GPS position (filled dot + accuracy circle)
+  const pin = L.circleMarker([0,0],{radius:8,color:tok('accent'),weight:3.5,fillColor:'#fff',fillOpacity:1,interactive:false});
+  const me  = L.circleMarker([0,0],{radius:7,color:'#fff',weight:2.5,fillColor:tok('accent'),fillOpacity:1,interactive:false});
   const acc = L.circle([0,0],{radius:1,color:tok('accent'),weight:1,fillColor:tok('accent'),fillOpacity:.12,interactive:false});
+  let inspecting=false; // true while the panel shows a tapped/picked point instead of your GPS position
+  function placeMe(lat,lng,accuracy){ me.setLatLng([lat,lng]).addTo(map); acc.setLatLng([lat,lng]).setRadius(accuracy||1).addTo(map); }
 
   const fmtM = d => d<1000 ? Math.round(d)+' m' : (d/1000).toFixed(d<10000?2:1)+' km';
   const fmtN = n => n==null?'—':n.toLocaleString('en-GB').replace(/,/g,' ');
@@ -976,10 +980,10 @@ const DATA = {"lo":[{"n":"Haabersti","km2":22.26,"p":[[[[24.574627,59.461817],[2
   let curIdx=-1;
   function show(lat,lng,source,accuracy){
     const r=identify(lat,lng);
-    pin.setLatLng([lat,lng]).addTo(map);
-    if (accuracy){acc.setLatLng([lat,lng]).setRadius(accuracy).addTo(map);} else acc.remove();
+    if (source==='gps'){ pin.remove(); placeMe(lat,lng,accuracy); }
+    else pin.setLatLng([lat,lng]).addTo(map);
     $('srcDot').classList.toggle('gps', source==='gps');
-    $('srcLabel').textContent = source==='gps' ? `Your position · ±${Math.round(accuracy)} m` : source;
+    $('srcLabel').textContent = source==='gps' ? `Your position · ±${Math.round(accuracy)} m` : (watchId!==null && gotFix ? source+' · tap ◎ for you' : source);
     $('fCoords').textContent = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
     const w=$('warnBox'); w.hidden=true;
     document.querySelectorAll('.lbl-as.cur').forEach(e=>e.classList.remove('cur'));
@@ -1019,7 +1023,7 @@ const DATA = {"lo":[{"n":"Haabersti","km2":22.26,"p":[[[[24.574627,59.461817],[2
     const list=g.querySelector('.as-list');
     byLo[lo].sort((x,y)=>x.n.localeCompare(y.n,'et')).forEach(a=>{
       const b=document.createElement('button'); b.type='button'; b.textContent=a.n; b.dataset.i=a.i;
-      b.onclick=()=>{ stopFollow(); const pr=$('panel').getBoundingClientRect(); map.fitBounds(asLayers[a.i].getBounds(), isPhone()?{paddingTopLeft:[20,20],paddingBottomRight:[20,pr.height+20],maxZoom:16}:{paddingTopLeft:[pr.right+20,20],paddingBottomRight:[20,20],maxZoom:16}); show(a.c[0],a.c[1],'Selected from list'); };
+      b.onclick=()=>{ stopFollow(); const pr=$('panel').getBoundingClientRect(); map.fitBounds(asLayers[a.i].getBounds(), isPhone()?{paddingTopLeft:[20,20],paddingBottomRight:[20,pr.height+20],maxZoom:16}:{paddingTopLeft:[pr.right+20,20],paddingBottomRight:[20,20],maxZoom:16}); inspect(a.c[0],a.c[1],'Selected from list'); };
       list.appendChild(b);
     });
     groups.appendChild(g);
@@ -1028,7 +1032,7 @@ const DATA = {"lo":[{"n":"Haabersti","km2":22.26,"p":[[[[24.574627,59.461817],[2
     document.querySelectorAll('.as-list button').forEach(b=>b.classList.toggle('cur',+b.dataset.i===i)); }
 
   // ---- interactions ----
-  map.on('click',e=>{ stopFollow(); show(e.latlng.lat,e.latlng.lng,'Tapped point'); });
+  map.on('click',e=>{ inspect(e.latlng.lat,e.latlng.lng,'Tapped point'); });
 
   $('coordForm').addEventListener('submit',e=>{
     e.preventDefault();
@@ -1036,12 +1040,14 @@ const DATA = {"lo":[{"n":"Haabersti","km2":22.26,"p":[[[[24.574627,59.461817],[2
     if (nums.length<2){ $('coordIn').setCustomValidity('Enter latitude and longitude, e.g. 59.4370, 24.7536'); $('coordIn').reportValidity(); return; }
     $('coordIn').setCustomValidity('');
     let [a,b]=nums; if (a<40 && b>40) [a,b]=[b,a]; // accept lng,lat order
-    stopFollow(); centreOn([a,b],Math.max(map.getZoom(),15)); show(a,b,'Entered coordinates');
+    stopFollow(); centreOn([a,b],Math.max(map.getZoom(),15)); inspect(a,b,'Entered coordinates');
   });
   $('coordIn').addEventListener('input',()=>$('coordIn').setCustomValidity(''));
 
   // ---- GPS ----
-  let watchId=null, following=true, gotFix=false, lastFix=null;
+  let watchId=null, following=true, gotFix=false, lastFix=null, lastAcc=0;
+  // looking at another spot: freeze the panel on it and stop following until ◎ is tapped
+  function inspect(lat,lng,label){ inspecting=true; stopFollow(); show(lat,lng,label); paintBtn(); }
   // locate button on the map, under the zoom buttons: tap = find me; tap again = re-centre; tap while centred = stop
   const LocateCtl = L.Control.extend({ options:{position:'topright'}, onAdd(){
     const d=L.DomUtil.create('div','leaflet-bar locate-ctl');
@@ -1052,7 +1058,7 @@ const DATA = {"lo":[{"n":"Haabersti","km2":22.26,"p":[[[[24.574627,59.461817],[2
   function paintBtn(){ const b=btnL(); if(!b) return;
     b.classList.toggle('waiting', watchId!==null && !gotFix);
     b.classList.toggle('tracking', watchId!==null && gotFix);
-    b.classList.toggle('following', watchId!==null && gotFix && following); }
+    b.classList.toggle('following', watchId!==null && gotFix && following && !inspecting); }
   function stopFollow(){ if(watchId!==null){ following=false; paintBtn(); } }
   map.on('dragstart',stopFollow);
 
@@ -1063,16 +1069,17 @@ const DATA = {"lo":[{"n":"Haabersti","km2":22.26,"p":[[[[24.574627,59.461817],[2
     gpsMsg('Tap ◎ (top right) to find yourself and follow along live. Your location stays on this device.');
   }
 
-  function stopTracking(msg){ if(watchId!==null) navigator.geolocation.clearWatch(watchId); watchId=null; gotFix=false; acc.remove(); paintBtn(); if(msg) gpsMsg(msg); }
+  function stopTracking(msg){ if(watchId!==null) navigator.geolocation.clearWatch(watchId); watchId=null; gotFix=false; inspecting=false; acc.remove(); me.remove(); paintBtn(); if(msg) gpsMsg(msg); }
   function startTracking(){
     if (!('geolocation' in navigator)){ gpsMsg('This browser has no location support. Tap the map or paste coordinates instead.'); return; }
-    gpsMsg('Waiting for a GPS fix…'); gotFix=false; following=true; $('srcLabel').textContent='Finding you…';
+    gpsMsg('Waiting for a GPS fix…'); gotFix=false; following=true; inspecting=false; $('srcLabel').textContent='Finding you…';
     watchId=navigator.geolocation.watchPosition(p=>{
       const {latitude:lat,longitude:lng,accuracy}=p.coords;
-      lastFix=[lat,lng];
-      if (!gotFix){ gotFix=true; centreOn([lat,lng],16); gpsMsg('Tracking live. Drag the map to look around; tap ◎ to re-centre.'); }
-      else if (following) centreOn([lat,lng],null,true);
-      show(lat,lng,'gps',accuracy); paintBtn();
+      lastFix=[lat,lng]; lastAcc=accuracy;
+      if (!gotFix){ gotFix=true; inspecting=false; centreOn([lat,lng],16); gpsMsg('Tracking live. Tap any spot to check it; tap ◎ to come back to you.'); }
+      else if (following && !inspecting) centreOn([lat,lng],null,true);
+      if (inspecting) placeMe(lat,lng,accuracy); else show(lat,lng,'gps',accuracy);
+      paintBtn();
     }, err=>{
       const m = err.code===1
         ? (STANDALONE ? 'Location permission was refused. Allow location for this page in your browser settings, then try again.'
@@ -1087,7 +1094,7 @@ const DATA = {"lo":[{"n":"Haabersti","km2":22.26,"p":[[[[24.574627,59.461817],[2
     btnL().addEventListener('click',e=>{ e.preventDefault();
       if (watchId===null) return startTracking();
       if (!gotFix) return;
-      if (!following){ following=true; paintBtn(); centreOn(lastFix,Math.max(map.getZoom(),15),true); return; }
+      if (!following || inspecting){ inspecting=false; following=true; show(lastFix[0],lastFix[1],'gps',lastAcc); paintBtn(); centreOn(lastFix,Math.max(map.getZoom(),15),true); return; }
       stopTracking('Tracking stopped. Tap ◎ to start again.'); $('srcLabel').textContent='Last GPS position';
     });
     // start straight away when location was already allowed on an earlier visit
